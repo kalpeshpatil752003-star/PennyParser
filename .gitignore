@@ -1,0 +1,72 @@
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Java / Maven
+backend/target/
+backend/.mvn/wrapper/*.jar
+backend/**/*.class
+backend/**/*.log
+backend/.classpath
+backend/.project
+backend/.settings/
+backend/.factorypath
+backend/.springBeans
+backend/.sts4-cache/
+backend/build/
+backend/.gradle/
+backend/nbproject/private/
+backend/nbbuild/
+backend/dist/
+backend/nbdist/
+backend/.nb-gradle/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.ipynb_checkpoints/
+venv/
+.venv/
+env/
+ENV/
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Local app data and generated files
+ai-service/financial_store.json
+ai-service/.pytest_cache/
+backend/uploads/
+uploads/
+*.sqlite3
+*.db
+
+# Project output / generated docs
+AI-Financial-Assistant-output.md
+AI-Financial-Assistant-output.txt
+*.log
+
+# Python tooling
+pip-log.txt
+
+# Package manager caches
+.venv/
+venv/
+
+# Ignore coverage and build artifacts
+coverage.xml
+.pytype/
