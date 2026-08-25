@@ -16,13 +16,16 @@ public class ChatService {
     private final ChatRepository chatRepository;
     private final ChatMessageRepository messageRepository;
     private final MessageCitationRepository citationRepository;
+    private final DocumentRepository documentRepository;
     private final PythonAiServiceClient aiServiceClient;
 
     public ChatService(ChatRepository chatRepository, ChatMessageRepository messageRepository,
-                       MessageCitationRepository citationRepository, PythonAiServiceClient aiServiceClient) {
+                       MessageCitationRepository citationRepository, DocumentRepository documentRepository,
+                       PythonAiServiceClient aiServiceClient) {
         this.chatRepository = chatRepository;
         this.messageRepository = messageRepository;
         this.citationRepository = citationRepository;
+        this.documentRepository = documentRepository;
         this.aiServiceClient = aiServiceClient;
     }
 
@@ -33,9 +36,16 @@ public class ChatService {
         return chatRepository.save(chat);
     }
 
-    public ChatMessageResponse askQuestion(Long chatId, String question, List<Long> documentIds) {
-        Chat chat = chatRepository.findById(chatId)
+    public ChatMessageResponse askQuestion(Long chatId, User user, String question, List<Long> documentIds) {
+        Chat chat = chatRepository.findByIdAndUserId(chatId, user.getId())
                 .orElseThrow(() -> new ApiException("Chat not found", HttpStatus.NOT_FOUND));
+
+        if (documentIds != null && !documentIds.isEmpty()) {
+            List<Document> userDocs = documentRepository.findAllByIdInAndUploadedById(documentIds, user.getId());
+            if (userDocs.size() != documentIds.stream().distinct().count()) {
+                throw new ApiException("Document not found or access denied", HttpStatus.NOT_FOUND);
+            }
+        }
 
         ChatMessage userMessage = new ChatMessage();
         userMessage.setChat(chat);
@@ -43,7 +53,7 @@ public class ChatService {
         userMessage.setContent(question);
         messageRepository.save(userMessage);
 
-        var result = aiServiceClient.query(question, documentIds);
+        var result = aiServiceClient.query(question, documentIds != null ? documentIds : List.of());
 
         ChatMessage assistantMessage = new ChatMessage();
         assistantMessage.setChat(chat);
@@ -65,10 +75,26 @@ public class ChatService {
                 assistantMessage.getContent(), citationDtos, assistantMessage.getCreatedAt());
     }
 
-    public List<ChatMessage> getMessages(Long chatId) {
+    public List<ChatMessage> getMessages(Long chatId, Long userId) {
+        chatRepository.findByIdAndUserId(chatId, userId)
+                .orElseThrow(() -> new ApiException("Chat not found", HttpStatus.NOT_FOUND));
         return messageRepository.findByChatIdOrderByCreatedAtAsc(chatId);
     }
+
     public List<Chat> getChatsForUser(Long userId) {
         return chatRepository.findByUserId(userId);
+    }
+
+    public Chat renameChat(Long chatId, Long userId, String title) {
+        Chat chat = chatRepository.findByIdAndUserId(chatId, userId)
+                .orElseThrow(() -> new ApiException("Chat not found", HttpStatus.NOT_FOUND));
+        chat.setTitle(title);
+        return chatRepository.save(chat);
+    }
+
+    public void deleteChat(Long chatId, Long userId) {
+        Chat chat = chatRepository.findByIdAndUserId(chatId, userId)
+                .orElseThrow(() -> new ApiException("Chat not found", HttpStatus.NOT_FOUND));
+        chatRepository.delete(chat);
     }
 }

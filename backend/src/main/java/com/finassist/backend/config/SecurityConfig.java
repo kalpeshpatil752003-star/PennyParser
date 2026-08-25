@@ -1,5 +1,6 @@
 package com.finassist.backend.config;
 
+import com.finassist.backend.security.InternalServiceTokenFilter;
 import com.finassist.backend.security.JwtFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,9 +21,11 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtFilter jwtFilter;
+    private final InternalServiceTokenFilter internalServiceTokenFilter;
 
-    public SecurityConfig(JwtFilter jwtFilter) {
+    public SecurityConfig(JwtFilter jwtFilter, InternalServiceTokenFilter internalServiceTokenFilter) {
         this.jwtFilter = jwtFilter;
+        this.internalServiceTokenFilter = internalServiceTokenFilter;
     }
 
     @Bean
@@ -39,9 +42,10 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/**").permitAll()
-                        .requestMatchers("/internal/**").permitAll()
+                        .requestMatchers("/internal/**").hasRole("INTERNAL_SERVICE")
                         .anyRequest().authenticated()
                 )
+                .addFilterBefore(internalServiceTokenFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

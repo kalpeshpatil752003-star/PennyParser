@@ -114,6 +114,7 @@ public class DocumentService {
                     HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
+        aiServiceClient.deleteDocumentVectors(documentId);
         documentRepository.delete(document);
     }
 }

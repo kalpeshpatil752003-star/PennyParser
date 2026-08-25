@@ -13,4 +13,5 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     Page<Document> findByCompanyId(Long companyId, Pageable pageable);
     long countByStatus(DocumentStatus status);
     Optional<Document> findByIdAndUploadedById(Long id, Long userId);
+    java.util.List<Document> findAllByIdInAndUploadedById(java.util.Collection<Long> ids, Long userId);
 }

@@ -30,16 +30,39 @@ public class ChatController {
 
     @PostMapping("/{chatId}/messages")
     public ResponseEntity<ChatMessageResponse> ask(@PathVariable Long chatId,
-                                                   @RequestBody Map<String, Object> body) {
+                                                   @RequestBody Map<String, Object> body,
+                                                   @AuthenticationPrincipal User user) {
         String question = (String) body.get("content");
         @SuppressWarnings("unchecked")
         List<Integer> rawIds = (List<Integer>) body.getOrDefault("documentIds", List.of());
         List<Long> documentIds = rawIds.stream().map(Integer::longValue).toList();
 
-        return ResponseEntity.ok(chatService.askQuestion(chatId, question, documentIds));
+        return ResponseEntity.ok(chatService.askQuestion(chatId, user, question, documentIds));
     }
+
+    @GetMapping("/{chatId}/messages")
+    public ResponseEntity<List<com.finassist.backend.entity.ChatMessage>> getMessages(@PathVariable Long chatId,
+                                                                                      @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(chatService.getMessages(chatId, user.getId()));
+    }
+
     @GetMapping
     public ResponseEntity<List<Chat>> listChats(@AuthenticationPrincipal User user) {
         return ResponseEntity.ok(chatService.getChatsForUser(user.getId()));
+    }
+
+    @PutMapping("/{chatId}")
+    public ResponseEntity<Chat> renameChat(@PathVariable Long chatId,
+                                           @RequestBody Map<String, String> body,
+                                           @AuthenticationPrincipal User user) {
+        String title = body.get("title");
+        return ResponseEntity.ok(chatService.renameChat(chatId, user.getId(), title));
+    }
+
+    @DeleteMapping("/{chatId}")
+    public ResponseEntity<Void> deleteChat(@PathVariable Long chatId,
+                                           @AuthenticationPrincipal User user) {
+        chatService.deleteChat(chatId, user.getId());
+        return ResponseEntity.noContent().build();
     }
 }

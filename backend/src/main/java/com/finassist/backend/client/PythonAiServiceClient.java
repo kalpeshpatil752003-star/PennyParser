@@ -14,11 +14,14 @@ public class PythonAiServiceClient {
 
     private final HttpClient httpClient;
     private final String baseUrl;
+    private final String internalToken;
 
-    public PythonAiServiceClient(@Value("${ai-service.base-url}") String baseUrl) {
+    public PythonAiServiceClient(@Value("${ai-service.base-url}") String baseUrl,
+                                 @Value("${internal.service-token}") String internalToken) {
         this.baseUrl = baseUrl;
+        this.internalToken = internalToken;
         this.httpClient = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)   // <-- the actual fix
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
     }
@@ -31,6 +34,7 @@ public class PythonAiServiceClient {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/internal/v1/process"))
                 .header("Content-Type", "application/json")
+                .header("X-Internal-Token", internalToken)
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
 
@@ -57,6 +61,23 @@ public class PythonAiServiceClient {
         }
     }
 
+    public void deleteDocumentVectors(Long documentId) {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/internal/v1/documents/" + documentId))
+                .header("X-Internal-Token", internalToken)
+                .DELETE()
+                .build();
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() >= 300 && response.statusCode() != 404) {
+                throw new IllegalStateException("AI service failed vector cleanup: " + response.body());
+            }
+        } catch (Exception e) {
+            // log error but do not fail whole DB deletion
+            System.err.println("Warning: failed to delete vectors from AI service: " + e.getMessage());
+        }
+    }
+
     private String jsonString(String value) {
         return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
@@ -73,6 +94,7 @@ public class PythonAiServiceClient {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/internal/v1/query"))
                 .header("Content-Type", "application/json")
+                .header("X-Internal-Token", internalToken)
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .timeout(Duration.ofSeconds(120))
                 .build();
