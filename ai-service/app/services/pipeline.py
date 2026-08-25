@@ -8,6 +8,7 @@ from app.core.faiss_store import add_chunk, remove_document
 from app.services.financial_extraction import extract_financial_tables
 from app.services.line_items import extract_line_items
 from app.services.ratios import calculate_ratios
+from app.services.rag import store_line_items
 
 logger = logging.getLogger("pipeline")
 
@@ -49,6 +50,14 @@ async def run_pipeline(document_id: int, file_path: str, file_type: str):
 
                 line_items = extract_line_items(tables)
                 ratios = calculate_ratios(line_items)
+
+                # Log extracted period data for debugging
+                for metric_key, item in line_items.items():
+                    logger.info(f"[doc {document_id}] {metric_key}: value={item.get('value')}, by_period={item.get('by_period', {})}")
+
+            # Cache structured line items for RAG reasoning engine
+            if line_items:
+                store_line_items(document_id, line_items)
 
             # Sync financial line items & ratios to PostgreSQL
             await sync_financials_to_spring(client, document_id, line_items, ratios)

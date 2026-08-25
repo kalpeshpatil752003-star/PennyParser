@@ -44,7 +44,6 @@ def _persist():
     if _has_faiss and _index is not None:
         faiss.write_index(_index, INDEX_PATH)
     with open(METADATA_PATH, "wb") as f:
-        # Save metadata without non-serializable objects
         pickle.dump(_metadata_store, f)
 
 def _load_or_init():
@@ -52,22 +51,32 @@ def _load_or_init():
     if os.path.exists(METADATA_PATH):
         try:
             with open(METADATA_PATH, "rb") as f:
-                _metadata_store = pickle.load(f)
-        except Exception:
+                loaded = pickle.load(f)
+                if isinstance(loaded, dict):
+                    _metadata_store = loaded
+        except Exception as e:
+            logger.error(f"Error reading metadata store: {e}")
             _metadata_store = {}
-            
+
     if _has_faiss:
-        if os.path.exists(INDEX_PATH):
-            try:
-                _index = faiss.read_index(INDEX_PATH)
-                return
-            except Exception:
-                pass
         _index = faiss.IndexFlatIP(DIMENSION)
+        valid_vectors = []
+        clean_store = {}
         if _metadata_store:
-            vectors = np.array([m["vector"] for m in _metadata_store.values()], dtype="float32")
-            if len(vectors) > 0:
+            sorted_keys = sorted(_metadata_store.keys())
+            for k in sorted_keys:
+                meta = _metadata_store[k]
+                if isinstance(meta, dict) and "vector" in meta and meta["vector"] is not None:
+                    new_id = len(clean_store)
+                    meta["vector_id"] = new_id
+                    clean_store[new_id] = meta
+                    valid_vectors.append(meta["vector"])
+
+            _metadata_store = clean_store
+            if valid_vectors:
+                vectors = np.array(valid_vectors, dtype="float32")
                 _index.add(_normalize(vectors))
+            logger.info(f"Rebuilt FAISS IndexFlatIP with {len(valid_vectors)} vectors synced to metadata store.")
 
 _load_or_init()
 
@@ -95,7 +104,7 @@ def add_chunk(document_id: int, chunk_index: int, page_number: int, text: str) -
 
 def remove_document(document_id: int) -> int:
     global _index, _metadata_store
-    remaining = [meta for meta in _metadata_store.values() if meta["documentId"] != document_id]
+    remaining = [meta for meta in _metadata_store.values() if meta.get("documentId") != document_id]
     removed_count = len(_metadata_store) - len(remaining)
     
     _metadata_store = {}
@@ -128,7 +137,7 @@ def search(query: str, document_ids: list[int] = None, top_k: int = 5) -> list[d
         for idx, score in zip(indices[0], distances[0]):
             if idx in _metadata_store:
                 meta = _metadata_store[idx]
-                if allowed_set is None or meta["documentId"] in allowed_set:
+                if allowed_set is None or meta.get("documentId") in allowed_set:
                     res = dict(meta)
                     res["score"] = float(score)
                     results.append(res)
@@ -140,12 +149,13 @@ def search(query: str, document_ids: list[int] = None, top_k: int = 5) -> list[d
         scored = []
         q_vec = query_vector[0]
         for meta in _metadata_store.values():
-            if allowed_set is None or meta["documentId"] in allowed_set:
-                doc_vec = np.array(meta["vector"], dtype="float32")
-                score = float(np.dot(q_vec, doc_vec))
-                res = dict(meta)
-                res["score"] = score
-                scored.append(res)
+            if allowed_set is None or meta.get("documentId") in allowed_set:
+                doc_vec = np.array(meta.get("vector", []), dtype="float32")
+                if len(doc_vec) == DIMENSION:
+                    score = float(np.dot(q_vec, doc_vec))
+                    res = dict(meta)
+                    res["score"] = score
+                    scored.append(res)
         scored.sort(key=lambda x: x["score"], reverse=True)
         return scored[:top_k]
 
@@ -153,5 +163,5 @@ def get_chunks_for_document(document_id: int) -> list[dict]:
     return [
         dict(meta)
         for meta in _metadata_store.values()
-        if meta["documentId"] == document_id
+        if meta.get("documentId") == document_id
     ]

@@ -30,13 +30,16 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final FinancialStatementRepository statementRepository;
+    private final com.finassist.backend.repository.DocumentChunkRepository chunkRepository;
     private final PythonAiServiceClient aiServiceClient;
 
     public DocumentService(DocumentRepository documentRepository,
                            FinancialStatementRepository statementRepository,
+                           com.finassist.backend.repository.DocumentChunkRepository chunkRepository,
                            PythonAiServiceClient aiServiceClient) {
         this.documentRepository = documentRepository;
         this.statementRepository = statementRepository;
+        this.chunkRepository = chunkRepository;
         this.aiServiceClient = aiServiceClient;
     }
 
@@ -149,6 +152,8 @@ public class DocumentService {
                     HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
+        chunkRepository.deleteByDocumentId(documentId);
+        statementRepository.deleteByDocumentId(documentId);
         aiServiceClient.deleteDocumentVectors(documentId);
         documentRepository.delete(document);
     }

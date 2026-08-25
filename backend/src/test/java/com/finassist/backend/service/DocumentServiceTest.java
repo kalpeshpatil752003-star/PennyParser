@@ -6,6 +6,7 @@ import com.finassist.backend.entity.Document;
 import com.finassist.backend.entity.DocumentStatus;
 import com.finassist.backend.entity.User;
 import com.finassist.backend.exception.ApiException;
+import com.finassist.backend.repository.DocumentChunkRepository;
 import com.finassist.backend.repository.DocumentRepository;
 import com.finassist.backend.repository.FinancialStatementRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +23,7 @@ class DocumentServiceTest {
 
     private DocumentRepository documentRepository;
     private FinancialStatementRepository statementRepository;
+    private DocumentChunkRepository chunkRepository;
     private PythonAiServiceClient aiServiceClient;
     private DocumentService documentService;
 
@@ -32,8 +34,9 @@ class DocumentServiceTest {
     void setUp() {
         documentRepository = mock(DocumentRepository.class);
         statementRepository = mock(FinancialStatementRepository.class);
+        chunkRepository = mock(DocumentChunkRepository.class);
         aiServiceClient = mock(PythonAiServiceClient.class);
-        documentService = new DocumentService(documentRepository, statementRepository, aiServiceClient);
+        documentService = new DocumentService(documentRepository, statementRepository, chunkRepository, aiServiceClient);
 
         userA = new User();
         userA.setId(1L);
@@ -77,7 +80,6 @@ class DocumentServiceTest {
         DocumentResponse response = documentService.upload(file, userA);
 
         assertNotNull(response);
-        // Ensure original filename was sanitized from path traversal
         assertEquals("passwd.pdf", response.getFileName());
         verify(aiServiceClient).triggerProcessing(eq(50L), anyString(), eq("PDF"));
     }

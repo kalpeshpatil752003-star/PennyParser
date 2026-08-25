@@ -3,7 +3,9 @@ package com.finassist.backend.controller;
 import com.finassist.backend.dto.ChatMessageResponse;
 import com.finassist.backend.entity.Chat;
 import com.finassist.backend.entity.User;
+import com.finassist.backend.exception.ApiException;
 import com.finassist.backend.service.ChatService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -28,14 +30,45 @@ public class ChatController {
         return ResponseEntity.ok(chatService.createChat(user, title));
     }
 
-    @PostMapping("/{chatId}/messages")
-    public ResponseEntity<ChatMessageResponse> ask(@PathVariable Long chatId,
-                                                   @RequestBody Map<String, Object> body,
-                                                   @AuthenticationPrincipal User user) {
-        String question = (String) body.get("content");
+    @PostMapping("/ask")
+    public ResponseEntity<ChatMessageResponse> askQuick(@RequestBody Map<String, Object> body,
+                                                        @AuthenticationPrincipal User user) {
+        String question = (String) body.get("message");
+        if (question == null) {
+            question = (String) body.get("content");
+        }
+        if (question == null || question.trim().isEmpty()) {
+            throw new ApiException("Question content cannot be empty", HttpStatus.BAD_REQUEST);
+        }
+
         @SuppressWarnings("unchecked")
-        List<Integer> rawIds = (List<Integer>) body.getOrDefault("documentIds", List.of());
-        List<Long> documentIds = rawIds.stream().map(Integer::longValue).toList();
+        List<Number> rawIds = (List<Number>) body.getOrDefault("documentIds", List.of());
+        List<Long> documentIds = rawIds != null ? rawIds.stream().map(Number::longValue).toList() : List.of();
+
+        Long chatId = body.containsKey("chatId") && body.get("chatId") != null ? ((Number) body.get("chatId")).longValue() : null;
+        if (chatId == null) {
+            Chat chat = chatService.createChat(user, "New Research Chat");
+            chatId = chat.getId();
+        }
+
+        return ResponseEntity.ok(chatService.askQuestion(chatId, user, question, documentIds));
+    }
+
+    @PostMapping("/{chatId}/messages")
+    public ResponseEntity<ChatMessageResponse> askInChat(@PathVariable Long chatId,
+                                                         @RequestBody Map<String, Object> body,
+                                                         @AuthenticationPrincipal User user) {
+        String question = (String) body.get("content");
+        if (question == null) {
+            question = (String) body.get("message");
+        }
+        if (question == null || question.trim().isEmpty()) {
+            throw new ApiException("Question content cannot be empty", HttpStatus.BAD_REQUEST);
+        }
+
+        @SuppressWarnings("unchecked")
+        List<Number> rawIds = (List<Number>) body.getOrDefault("documentIds", List.of());
+        List<Long> documentIds = rawIds != null ? rawIds.stream().map(Number::longValue).toList() : List.of();
 
         return ResponseEntity.ok(chatService.askQuestion(chatId, user, question, documentIds));
     }

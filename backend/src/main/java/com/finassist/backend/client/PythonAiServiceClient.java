@@ -21,11 +21,10 @@ public class PythonAiServiceClient {
     private final String internalToken;
 
     public PythonAiServiceClient(@Value("${ai-service.base-url}") String baseUrl,
-                                 @Value("${internal.service-token}") String internalToken,
-                                 ObjectMapper objectMapper) {
+                                 @Value("${internal.service-token}") String internalToken) {
         this.baseUrl = baseUrl;
         this.internalToken = internalToken;
-        this.objectMapper = objectMapper;
+        this.objectMapper = new ObjectMapper();
         this.httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(5))
