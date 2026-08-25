@@ -5,6 +5,7 @@ import com.finassist.backend.dto.DocumentResponse;
 import com.finassist.backend.entity.*;
 import com.finassist.backend.exception.ApiException;
 import com.finassist.backend.repository.DocumentRepository;
+import com.finassist.backend.repository.FinancialStatementRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -24,23 +25,34 @@ public class DocumentService {
             "text/plain"
     );
 
-    @Value("${file.upload-dir}")
-    private String uploadDir;
+    @Value("${file.upload-dir:uploads}")
+    private String uploadDir = "uploads";
 
     private final DocumentRepository documentRepository;
-
+    private final FinancialStatementRepository statementRepository;
     private final PythonAiServiceClient aiServiceClient;
 
-    public DocumentService(DocumentRepository documentRepository, PythonAiServiceClient aiServiceClient) {
+    public DocumentService(DocumentRepository documentRepository,
+                           FinancialStatementRepository statementRepository,
+                           PythonAiServiceClient aiServiceClient) {
         this.documentRepository = documentRepository;
+        this.statementRepository = statementRepository;
         this.aiServiceClient = aiServiceClient;
     }
 
     public DocumentResponse upload(MultipartFile file, User uploader) {
         validate(file);
 
-        String storedFileName = System.currentTimeMillis() + "_" + file.getOriginalFilename();
-        Path targetPath = Paths.get(uploadDir).resolve(storedFileName);
+        String rawFilename = file.getOriginalFilename();
+        String sanitizedFilename = rawFilename != null ? Paths.get(rawFilename).getFileName().toString() : "upload.bin";
+        String storedFileName = java.util.UUID.randomUUID() + "_" + sanitizedFilename;
+
+        Path baseDirPath = Paths.get(uploadDir).toAbsolutePath().normalize();
+        Path targetPath = baseDirPath.resolve(storedFileName).normalize();
+
+        if (!targetPath.startsWith(baseDirPath)) {
+            throw new ApiException("Invalid upload filename", HttpStatus.BAD_REQUEST);
+        }
 
         try {
             Files.createDirectories(targetPath.getParent());
@@ -51,7 +63,7 @@ public class DocumentService {
 
         Document document = new Document();
         document.setUploadedBy(uploader);
-        document.setFileName(file.getOriginalFilename());
+        document.setFileName(sanitizedFilename);
         document.setStoredFileName(storedFileName);
         document.setFileType(resolveFileType(file.getContentType()));
         document.setFileSize(file.getSize());
@@ -68,10 +80,33 @@ public class DocumentService {
                 .stream().map(this::toResponse).toList();
     }
 
-    public String getStatus(Long documentId) {
-        Document doc = documentRepository.findById(documentId)
+    public DocumentResponse getDocument(Long documentId, Long userId) {
+        Document doc = documentRepository.findByIdAndUploadedById(documentId, userId)
+                .orElseThrow(() -> new ApiException("Document not found", HttpStatus.NOT_FOUND));
+        return toResponse(doc);
+    }
+
+    public String getStatus(Long documentId, Long userId) {
+        Document doc = documentRepository.findByIdAndUploadedById(documentId, userId)
                 .orElseThrow(() -> new ApiException("Document not found", HttpStatus.NOT_FOUND));
         return doc.getStatus().name();
+    }
+
+    public List<com.finassist.backend.dto.FinancialStatementResponse> getFinancialStatements(Long documentId, Long userId) {
+        Document doc = documentRepository.findByIdAndUploadedById(documentId, userId)
+                .orElseThrow(() -> new ApiException("Document not found", HttpStatus.NOT_FOUND));
+
+        List<FinancialStatement> statements = statementRepository.findByDocumentId(doc.getId());
+        return statements.stream().map(stmt -> new com.finassist.backend.dto.FinancialStatementResponse(
+                stmt.getId(),
+                doc.getId(),
+                stmt.getStatementType(),
+                stmt.getFiscalYear(),
+                stmt.getPeriod(),
+                stmt.getMetrics().stream().map(m -> new com.finassist.backend.dto.FinancialStatementResponse.FinancialMetricDto(
+                        m.getId(), m.getMetricName(), m.getMetricValue(), m.getUnit(), m.getSourcePage()
+                )).toList()
+        )).toList();
     }
 
     private void validate(MultipartFile file) {

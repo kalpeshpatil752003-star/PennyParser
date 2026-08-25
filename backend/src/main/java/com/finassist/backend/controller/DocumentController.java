@@ -37,9 +37,32 @@ public class DocumentController {
         return ResponseEntity.ok(documentService.listForUser(user.getId()));
     }
 
+    @GetMapping("/{id}")
+    public ResponseEntity<DocumentResponse> getDocument(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(documentService.getDocument(id, user.getId()));
+    }
+
     @GetMapping("/{id}/status")
-    public ResponseEntity<Map<String, String>> status(@PathVariable Long id) {
-        return ResponseEntity.ok(Map.of("status", documentService.getStatus(id)));
+    public ResponseEntity<Map<String, String>> status(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(Map.of("status", documentService.getStatus(id, user.getId())));
+    }
+
+    @GetMapping("/{id}/financial-statements")
+    public ResponseEntity<List<com.finassist.backend.dto.FinancialStatementResponse>> getFinancialStatements(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(documentService.getFinancialStatements(id, user.getId()));
+    }
+
+    @GetMapping("/{id}/financial-metrics")
+    public ResponseEntity<List<com.finassist.backend.dto.FinancialStatementResponse>> getFinancialMetrics(
+            @PathVariable Long id,
+            @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(documentService.getFinancialStatements(id, user.getId()));
     }
 
     @DeleteMapping("/{id}")
