@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@theme {
+  /* Our Swiss Design Color System */
+  --color-penny-bg: #F5F4F0;
+  --color-penny-dark-bg: #111111;
+  --color-penny-text: #111111;
+  --color-penny-dark-text: #F2F2F0;
+  --color-penny-accent: #E53935;
+  --color-penny-dark-accent: #FF4B45;
+  --color-penny-border: #DCDCD7;
+  --color-penny-dark-border: #303030;
+  --color-penny-surface: #FAFAF8;
+  --color-penny-dark-surface: #181818;
+
+  /* Typography */
+  --font-sans: "Inter", "Geist", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+}
+
+/* Ensure the dark mode class works seamlessly */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  body {
+    @apply bg-penny-bg text-penny-text font-sans antialiased;
+  }
+}

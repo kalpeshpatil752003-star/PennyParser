@@ -53,7 +53,7 @@ class DocumentServiceTest {
         doc.setId(10L);
         doc.setStatus(DocumentStatus.READY);
 
-        when(documentRepository.findByIdAndUploadedById(10L, 1L)).thenReturn(Optional.of(doc));
+        when(documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(10L, 1L)).thenReturn(Optional.of(doc));
 
         String status = documentService.getStatus(10L, 1L);
         assertEquals("READY", status);
@@ -61,10 +61,81 @@ class DocumentServiceTest {
 
     @Test
     void getStatus_otherUserDocument_throwsNotFound() {
-        when(documentRepository.findByIdAndUploadedById(10L, 2L)).thenReturn(Optional.empty());
+        when(documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(10L, 2L)).thenReturn(Optional.empty());
 
         ApiException ex = assertThrows(ApiException.class, () -> documentService.getStatus(10L, 2L));
         assertEquals("Document not found", ex.getMessage());
+    }
+
+    @Test
+    void listForUser_excludesDeletedDocuments() {
+        Document docActive = new Document();
+        docActive.setId(10L);
+        docActive.setFileName("active.pdf");
+        docActive.setFileType("PDF");
+        docActive.setStatus(DocumentStatus.READY);
+
+        when(documentRepository.findByUploadedByIdAndDeletedAtIsNull(eq(1L), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(java.util.List.of(docActive)));
+
+        var docs = documentService.listForUser(1L);
+        assertEquals(1, docs.size());
+        assertEquals(10L, docs.get(0).getId());
+        assertEquals("active.pdf", docs.get(0).getFileName());
+    }
+
+    @Test
+    void getDocument_deletedDocument_throwsNotFound() {
+        when(documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(10L, 1L)).thenReturn(Optional.empty());
+
+        ApiException ex = assertThrows(ApiException.class, () -> documentService.getDocument(10L, 1L));
+        assertEquals("Document not found", ex.getMessage());
+    }
+
+    @Test
+    void delete_ownActiveDocument_softDeletesAndCleansDependencies() {
+        Document doc = new Document();
+        doc.setId(10L);
+        doc.setStoredFileName("uuid_test.pdf");
+        doc.setStatus(DocumentStatus.READY);
+
+        when(documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(10L, 1L)).thenReturn(Optional.of(doc));
+        when(documentRepository.save(any(Document.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        documentService.delete(10L, 1L);
+
+        // Verify: marked as deleted with timestamp
+        assertNotNull(doc.getDeletedAt());
+        assertEquals(DocumentStatus.FAILED, doc.getStatus());
+        verify(documentRepository).save(doc);
+
+        // Verify: database dependencies deleted
+        verify(chunkRepository).deleteByDocumentId(10L);
+        verify(statementRepository).deleteByDocumentId(10L);
+
+        // Verify: AI service vectors cleaned up
+        verify(aiServiceClient).deleteDocumentVectors(10L);
+    }
+
+    @Test
+    void delete_otherUserDocument_throwsNotFound() {
+        when(documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(10L, 2L)).thenReturn(Optional.empty());
+
+        ApiException ex = assertThrows(ApiException.class, () -> documentService.delete(10L, 2L));
+        assertEquals("Document not found", ex.getMessage());
+        verify(documentRepository, never()).save(any());
+        verify(chunkRepository, never()).deleteByDocumentId(any());
+        verify(aiServiceClient, never()).deleteDocumentVectors(any());
+    }
+
+    @Test
+    void delete_alreadyDeletedDocument_throwsNotFound() {
+        // Second deletion attempt of the same document returns 404
+        when(documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(10L, 1L)).thenReturn(Optional.empty());
+
+        ApiException ex = assertThrows(ApiException.class, () -> documentService.delete(10L, 1L));
+        assertEquals("Document not found", ex.getMessage());
+        verify(documentRepository, never()).save(any());
     }
 
     @Test

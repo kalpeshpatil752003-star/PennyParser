@@ -44,10 +44,17 @@ public class Document {
     @Column(name = "stored_file_name", nullable = false)
     private String storedFileName;
 
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @PrePersist
     protected void onCreate() {
         this.uploadedAt = LocalDateTime.now();
         if (this.status == null) this.status = DocumentStatus.UPLOADED;
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null;
     }
 
     // getters and setters
@@ -72,6 +79,8 @@ public class Document {
     public LocalDateTime getUploadedAt() { return uploadedAt; }
     public String getStoredFileName() {return storedFileName;}
     public void setStoredFileName(String storedFileName) {this.storedFileName = storedFileName;}
+    public LocalDateTime getDeletedAt() { return deletedAt; }
+    public void setDeletedAt(LocalDateTime deletedAt) { this.deletedAt = deletedAt; }
 
     @Override
     public boolean equals(Object o) {

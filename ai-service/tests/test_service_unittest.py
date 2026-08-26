@@ -40,7 +40,7 @@ class TestAIService(unittest.TestCase):
         faiss_store.add_chunk(document_id=1, chunk_index=0, page_number=1, text="Apple revenue grew 10% in fiscal 2024.")
         faiss_store.add_chunk(document_id=2, chunk_index=0, page_number=1, text="Microsoft cloud revenue reached $30B.")
 
-        global_res = faiss_store.search("revenue", top_k=5)
+        global_res = faiss_store.search("revenue", document_ids=[1, 2], top_k=5)
         self.assertEqual(len(global_res), 2)
 
         doc1_res = faiss_store.search("revenue", document_ids=[1], top_k=5)

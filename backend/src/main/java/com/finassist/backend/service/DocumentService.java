@@ -79,24 +79,24 @@ public class DocumentService {
     }
 
     public List<DocumentResponse> listForUser(Long userId) {
-        return documentRepository.findByUploadedById(userId, org.springframework.data.domain.Pageable.unpaged())
+        return documentRepository.findByUploadedByIdAndDeletedAtIsNull(userId, org.springframework.data.domain.Pageable.unpaged())
                 .stream().map(this::toResponse).toList();
     }
 
     public DocumentResponse getDocument(Long documentId, Long userId) {
-        Document doc = documentRepository.findByIdAndUploadedById(documentId, userId)
+        Document doc = documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(documentId, userId)
                 .orElseThrow(() -> new ApiException("Document not found", HttpStatus.NOT_FOUND));
         return toResponse(doc);
     }
 
     public String getStatus(Long documentId, Long userId) {
-        Document doc = documentRepository.findByIdAndUploadedById(documentId, userId)
+        Document doc = documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(documentId, userId)
                 .orElseThrow(() -> new ApiException("Document not found", HttpStatus.NOT_FOUND));
         return doc.getStatus().name();
     }
 
     public List<com.finassist.backend.dto.FinancialStatementResponse> getFinancialStatements(Long documentId, Long userId) {
-        Document doc = documentRepository.findByIdAndUploadedById(documentId, userId)
+        Document doc = documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(documentId, userId)
                 .orElseThrow(() -> new ApiException("Document not found", HttpStatus.NOT_FOUND));
 
         List<FinancialStatement> statements = statementRepository.findByDocumentId(doc.getId());
@@ -133,28 +133,43 @@ public class DocumentService {
                 d.getDocumentType(), d.getStatus(), d.getUploadedAt());
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public void delete(Long documentId, Long userId) {
-
+        // 1. Authenticate ownership + active document lookup (throws 404 if not found or already deleted)
         Document document = documentRepository
-                .findByIdAndUploadedById(documentId, userId)
+                .findByIdAndUploadedByIdAndDeletedAtIsNull(documentId, userId)
                 .orElseThrow(() -> new ApiException(
                         "Document not found",
                         HttpStatus.NOT_FOUND));
 
-        Path filePath = Paths.get(uploadDir)
-                .resolve(document.getStoredFileName());
+        // 2. Mark document as soft-deleted in PostgreSQL
+        document.setDeletedAt(java.time.LocalDateTime.now());
+        document.setStatus(DocumentStatus.FAILED);
+        documentRepository.save(document);
 
-        try {
-            Files.deleteIfExists(filePath);
-        } catch (IOException e) {
-            throw new ApiException(
-                    "Failed to delete file",
-                    HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-
+        // 3. Clean up database dependencies within current transaction
         chunkRepository.deleteByDocumentId(documentId);
         statementRepository.deleteByDocumentId(documentId);
-        aiServiceClient.deleteDocumentVectors(documentId);
-        documentRepository.delete(document);
+
+        // 4. Idempotent external cleanups (outside ACID transaction)
+        // Vector cleanup in Python AI Service
+        try {
+            aiServiceClient.deleteDocumentVectors(documentId);
+        } catch (Exception e) {
+            System.err.println("Warning: failed to delete vectors from AI service: " + e.getMessage());
+        }
+
+        // Physical file cleanup (safe path inside uploadDir)
+        if (document.getStoredFileName() != null) {
+            Path baseDirPath = Paths.get(uploadDir).toAbsolutePath().normalize();
+            Path filePath = baseDirPath.resolve(document.getStoredFileName()).normalize();
+            if (filePath.startsWith(baseDirPath)) {
+                try {
+                    Files.deleteIfExists(filePath);
+                } catch (IOException e) {
+                    System.err.println("Warning: failed to delete physical file: " + e.getMessage());
+                }
+            }
+        }
     }
 }

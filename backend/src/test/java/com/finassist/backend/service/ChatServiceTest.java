@@ -69,7 +69,7 @@ class ChatServiceTest {
         chat.setDocuments(new HashSet<>());
 
         when(chatRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(chat));
-        when(documentRepository.findAllByIdInAndUploadedById(List.of(10L), 1L))
+        when(documentRepository.findAllByIdInAndUploadedByIdAndDeletedAtIsNull(List.of(10L), 1L))
                 .thenReturn(List.of(doc10));
         when(chatRepository.save(any(Chat.class))).thenAnswer(inv -> inv.getArgument(0));
         when(aiServiceClient.query(any(), any()))
@@ -128,6 +128,32 @@ class ChatServiceTest {
     }
 
     // =====================================================
+    // Test 4: Chat with soft-deleted document excludes it from RAG query
+    // =====================================================
+    @Test
+    void askQuestion_chatWithDeletedDocument_excludesDeletedDocFromQuery() {
+        Document deletedDoc = new Document();
+        deletedDoc.setId(10L);
+        deletedDoc.setUploadedBy(userA);
+        deletedDoc.setDeletedAt(java.time.LocalDateTime.now()); // Soft-deleted!
+
+        Chat chat = new Chat();
+        chat.setId(1L);
+        chat.setUser(userA);
+        chat.setDocuments(new HashSet<>(Set.of(deletedDoc)));
+
+        when(chatRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(chat));
+        when(chatRepository.save(any(Chat.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(aiServiceClient.query(any(), any()))
+                .thenReturn(new PythonAiServiceClient.QueryResult("I don't have enough information", List.of()));
+
+        chatService.askQuestion(1L, userA, "What is revenue?", List.of());
+
+        // CRITICAL ASSERTION: Deleted doc 10 must NOT be sent to Python AI service
+        verify(aiServiceClient).query(eq("What is revenue?"), eq(List.of()));
+    }
+
+    // =====================================================
     // Test 5: User A cannot use User B's document
     // =====================================================
     @Test
@@ -138,9 +164,9 @@ class ChatServiceTest {
         chat.setDocuments(new HashSet<>());
 
         when(chatRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(chat));
-        // User A asks for doc 999 which doesn't belong to them
-        when(documentRepository.findAllByIdInAndUploadedById(List.of(999L), 1L))
-                .thenReturn(List.of());  // empty: doc not found for this user
+        // User A asks for doc 999 which doesn't belong to them or is deleted
+        when(documentRepository.findAllByIdInAndUploadedByIdAndDeletedAtIsNull(List.of(999L), 1L))
+                .thenReturn(List.of());
 
         ApiException ex = assertThrows(ApiException.class, () ->
                 chatService.askQuestion(1L, userA, "Question", List.of(999L)));
@@ -161,12 +187,7 @@ class ChatServiceTest {
     }
 
     // =====================================================
-    // Test 6: Deleting document doesn't delete chat
-    // (tested via entity relationship — chat_documents cascade on document delete)
-    // =====================================================
-
-    // =====================================================
-    // Test 7: Deleting chat doesn't delete document
+    // Test 6: Deleting chat doesn't delete document
     // =====================================================
     @Test
     void deleteChat_doesNotDeleteDocuments() {
@@ -230,7 +251,7 @@ class ChatServiceTest {
         chat.setDocuments(new HashSet<>(Set.of(doc10)));
 
         when(chatRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(chat));
-        when(documentRepository.findAllByIdInAndUploadedById(List.of(11L), 1L))
+        when(documentRepository.findAllByIdInAndUploadedByIdAndDeletedAtIsNull(List.of(11L), 1L))
                 .thenReturn(List.of(doc11));
         when(chatRepository.save(any(Chat.class))).thenAnswer(inv -> inv.getArgument(0));
         when(aiServiceClient.query(any(), any()))

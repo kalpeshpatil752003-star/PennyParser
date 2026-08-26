@@ -46,9 +46,9 @@ public class ChatService {
                 .orElseThrow(() -> new ApiException("Chat not found", HttpStatus.NOT_FOUND));
 
         // --- Document association logic ---
-        // If new documentIds are provided, validate ownership and persist the association
+        // If new documentIds are provided, validate ownership and ensure active (not deleted)
         if (documentIds != null && !documentIds.isEmpty()) {
-            List<Document> userDocs = documentRepository.findAllByIdInAndUploadedById(documentIds, user.getId());
+            List<Document> userDocs = documentRepository.findAllByIdInAndUploadedByIdAndDeletedAtIsNull(documentIds, user.getId());
             if (userDocs.size() != documentIds.stream().distinct().count()) {
                 throw new ApiException("Document not found or access denied", HttpStatus.NOT_FOUND);
             }
@@ -101,7 +101,7 @@ public class ChatService {
     /**
      * Resolves the effective document IDs for a chat query.
      * Uses the persisted chat-document association as the authoritative source.
-     * Filters out any documents that no longer belong to the authenticated user.
+     * Filters out any documents that no longer belong to the authenticated user or have been deleted.
      */
     private List<Long> resolveDocumentIds(Chat chat, User user) {
         Set<Document> documents = chat.getDocuments();
@@ -109,9 +109,10 @@ public class ChatService {
             return List.of();
         }
 
-        // Only include documents that still belong to this user (defensive check)
+        // Only include documents that still belong to this user and are not soft-deleted
         return documents.stream()
                 .filter(doc -> doc.getUploadedBy() != null && doc.getUploadedBy().getId().equals(user.getId()))
+                .filter(doc -> doc.getDeletedAt() == null)
                 .map(Document::getId)
                 .sorted()
                 .collect(Collectors.toList());
