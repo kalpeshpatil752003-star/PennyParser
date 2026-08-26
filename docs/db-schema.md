@@ -68,7 +68,18 @@
 │ company_id (FK,│        │ content              │  │ page_number                  │
 │  nullable)      │        │ created_at            │  └──────────────────────────────┘
 │ created_at       │       └──────────────────────┘
-└──────────────────┘
+└───────┬──────────┘
+        │
+        │ *:*
+        │
+┌───────▼────────────┐
+│  chat_documents       │
+│────────────────────────│
+│ chat_id (FK → chats)    │
+│ document_id (FK → docs) │
+│  PK (chat_id, doc_id)   │
+│  ON DELETE CASCADE      │
+└────────────────────────┘
 
 ┌───────────────────────┐        ┌──────────────────────────┐
 │  financial_statements     │        │   financial_metrics          │
@@ -103,6 +114,7 @@
 | `chat_messages` → `message_citations` | 1:* | One AI answer can cite multiple chunks |
 | `document_chunks` → `message_citations` | 1:* | One chunk can be cited by many messages over time |
 | `chats` → `companies` | *:1 (nullable) | A chat can optionally be scoped to one company |
+| `chats` ↔ `documents` (via `chat_documents`) | *:* | A chat references its selected documents; documents can appear in multiple chats |
 | `financial_statements` → `financial_metrics` | 1:* | One statement produces many computed ratios |
 | `users` → `bookmarks` | 1:* | Polymorphic: points at a document OR a company |
 

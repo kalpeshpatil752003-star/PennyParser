@@ -83,9 +83,21 @@
 ```
 
 **`POST /chats/{id}/messages`** request
+
+First message — associate documents with the chat:
 ```json
-{ "content": "What was the revenue growth in FY2024?" }
+{ "content": "What was the revenue growth in FY2024?", "documentIds": [42] }
 ```
+
+Subsequent messages — documents are resolved automatically from chat's persisted association:
+```json
+{ "content": "What about net income?" }
+```
+
+> `documentIds` is optional. If provided, those documents are **persistently associated** with the chat.
+> On subsequent requests, if `documentIds` is omitted or empty, the backend automatically resolves
+> the chat's previously associated documents. The client does not need to resend document IDs.
+
 response
 ```json
 {

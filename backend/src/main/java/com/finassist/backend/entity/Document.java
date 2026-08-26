@@ -72,4 +72,17 @@ public class Document {
     public LocalDateTime getUploadedAt() { return uploadedAt; }
     public String getStoredFileName() {return storedFileName;}
     public void setStoredFileName(String storedFileName) {this.storedFileName = storedFileName;}
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Document document = (Document) o;
+        return id != null && java.util.Objects.equals(id, document.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : System.identityHashCode(this);
+    }
 }
