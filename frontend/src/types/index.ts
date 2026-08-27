@@ -19,6 +19,7 @@ export interface Document {
   documentType?: string;
   status: DocumentStatus;
   uploadedAt: string;
+  isDeleted?: boolean;
 }
 
 export interface Citation {

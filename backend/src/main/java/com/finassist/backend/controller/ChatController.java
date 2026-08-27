@@ -1,6 +1,7 @@
 package com.finassist.backend.controller;
 
 import com.finassist.backend.dto.ChatMessageResponse;
+import com.finassist.backend.dto.ChatResponse;
 import com.finassist.backend.entity.Chat;
 import com.finassist.backend.entity.User;
 import com.finassist.backend.exception.ApiException;
@@ -24,10 +25,33 @@ public class ChatController {
     }
 
     @PostMapping
-    public ResponseEntity<Chat> createChat(@RequestBody(required = false) Map<String, String> body,
-                                           @AuthenticationPrincipal User user) {
-        String title = body != null ? body.get("title") : null;
-        return ResponseEntity.ok(chatService.createChat(user, title));
+    public ResponseEntity<ChatResponse> createChat(@RequestBody(required = false) Map<String, Object> body,
+                                                   @AuthenticationPrincipal User user) {
+        String title = body != null && body.containsKey("title") ? (String) body.get("title") : null;
+        List<Long> documentIds = List.of();
+        if (body != null && body.containsKey("documentIds")) {
+            @SuppressWarnings("unchecked")
+            List<Number> rawIds = (List<Number>) body.get("documentIds");
+            if (rawIds != null) {
+                documentIds = rawIds.stream().map(Number::longValue).toList();
+            }
+        } else if (body != null && body.containsKey("documentId") && body.get("documentId") != null) {
+            documentIds = List.of(((Number) body.get("documentId")).longValue());
+        }
+        Chat chat = chatService.createChat(user, title, documentIds);
+        return ResponseEntity.ok(chatService.toChatResponse(chat));
+    }
+
+    @GetMapping("/document/{documentId}")
+    public ResponseEntity<ChatResponse> getOrCreateChatForDocument(@PathVariable Long documentId,
+                                                                   @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(chatService.getOrCreateChatForDocument(documentId, user));
+    }
+
+    @GetMapping("/{chatId}")
+    public ResponseEntity<ChatResponse> getChat(@PathVariable Long chatId,
+                                                @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(chatService.getChat(chatId, user.getId()));
     }
 
     @PostMapping("/ask")
@@ -74,13 +98,17 @@ public class ChatController {
     }
 
     @GetMapping("/{chatId}/messages")
-    public ResponseEntity<List<com.finassist.backend.entity.ChatMessage>> getMessages(@PathVariable Long chatId,
-                                                                                      @AuthenticationPrincipal User user) {
+    public ResponseEntity<List<ChatMessageResponse>> getMessages(@PathVariable Long chatId,
+                                                                 @AuthenticationPrincipal User user) {
         return ResponseEntity.ok(chatService.getMessages(chatId, user.getId()));
     }
 
     @GetMapping
-    public ResponseEntity<List<Chat>> listChats(@AuthenticationPrincipal User user) {
+    public ResponseEntity<List<ChatResponse>> listChats(@RequestParam(name = "documentId", required = false) Long documentId,
+                                                        @AuthenticationPrincipal User user) {
+        if (documentId != null) {
+            return ResponseEntity.ok(chatService.getChatsForUserAndDocument(user.getId(), documentId));
+        }
         return ResponseEntity.ok(chatService.getChatsForUser(user.getId()));
     }
 

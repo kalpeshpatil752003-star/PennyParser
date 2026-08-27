@@ -94,10 +94,16 @@ public class InternalDocumentController {
         Map<String, Number> ratios = (Map<String, Number>) body.get("ratios");
 
         if (lineItems != null && !lineItems.isEmpty()) {
-            FinancialStatement stmt = new FinancialStatement();
-            stmt.setDocument(document);
-            stmt.setStatementType("FINANCIAL_SUMMARY");
-            stmt.setPeriod("FY");
+            java.util.List<FinancialStatement> statementsToSave = new java.util.ArrayList<>();
+
+            // 1. Primary summary statement
+            FinancialStatement summaryStmt = new FinancialStatement();
+            summaryStmt.setDocument(document);
+            summaryStmt.setStatementType("FINANCIAL_SUMMARY");
+            summaryStmt.setPeriod("FY");
+
+            // Map to collect metrics per period: period -> List<FinancialMetric>
+            java.util.Map<String, java.util.List<FinancialMetric>> periodMetricsMap = new java.util.HashMap<>();
 
             for (Map.Entry<String, Map<String, Object>> entry : lineItems.entrySet()) {
                 String metricName = entry.getKey();
@@ -107,12 +113,30 @@ public class InternalDocumentController {
 
                 if (val != null) {
                     FinancialMetric metric = new FinancialMetric();
-                    metric.setStatement(stmt);
+                    metric.setStatement(summaryStmt);
                     metric.setMetricName(metricName);
                     metric.setMetricValue(val.doubleValue());
                     metric.setUnit("CURRENCY");
                     metric.setSourcePage(page != null ? page.intValue() : null);
-                    stmt.getMetrics().add(metric);
+                    summaryStmt.getMetrics().add(metric);
+                }
+
+                @SuppressWarnings("unchecked")
+                Map<String, Object> byPeriod = (Map<String, Object>) details.get("by_period");
+                if (byPeriod != null) {
+                    for (Map.Entry<String, Object> pEntry : byPeriod.entrySet()) {
+                        String periodName = pEntry.getKey();
+                        Object pValObj = pEntry.getValue();
+                        if (pValObj instanceof Number pVal) {
+                            FinancialMetric pMetric = new FinancialMetric();
+                            pMetric.setMetricName(metricName);
+                            pMetric.setMetricValue(pVal.doubleValue());
+                            pMetric.setUnit("CURRENCY");
+                            pMetric.setSourcePage(page != null ? page.intValue() : null);
+
+                            periodMetricsMap.computeIfAbsent(periodName, k -> new java.util.ArrayList<>()).add(pMetric);
+                        }
+                    }
                 }
             }
 
@@ -120,16 +144,40 @@ public class InternalDocumentController {
                 for (Map.Entry<String, Number> entry : ratios.entrySet()) {
                     if (entry.getValue() != null) {
                         FinancialMetric metric = new FinancialMetric();
-                        metric.setStatement(stmt);
+                        metric.setStatement(summaryStmt);
                         metric.setMetricName(entry.getKey());
                         metric.setMetricValue(entry.getValue().doubleValue());
                         metric.setUnit("RATIO_OR_PCT");
-                        stmt.getMetrics().add(metric);
+                        summaryStmt.getMetrics().add(metric);
                     }
                 }
             }
+            statementsToSave.add(summaryStmt);
 
-            statementRepository.save(stmt);
+            // 2. Period-specific statements
+            for (Map.Entry<String, java.util.List<FinancialMetric>> pEntry : periodMetricsMap.entrySet()) {
+                String periodName = pEntry.getKey();
+                FinancialStatement periodStmt = new FinancialStatement();
+                periodStmt.setDocument(document);
+                periodStmt.setStatementType("PERIOD_DATA");
+                periodStmt.setPeriod(periodName.replace("_", " "));
+
+                // Extract potential fiscal year from period name (e.g. "Q2 2026" -> 2026)
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\b(19\\d\\d|20\\d\\d)\\b").matcher(periodName);
+                if (m.find()) {
+                    try {
+                        periodStmt.setFiscalYear(Integer.parseInt(m.group(1)));
+                    } catch (NumberFormatException ignored) {}
+                }
+
+                for (FinancialMetric mMetric : pEntry.getValue()) {
+                    mMetric.setStatement(periodStmt);
+                    periodStmt.getMetrics().add(mMetric);
+                }
+                statementsToSave.add(periodStmt);
+            }
+
+            statementRepository.saveAll(statementsToSave);
         }
         return ResponseEntity.noContent().build();
     }

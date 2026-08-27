@@ -1,33 +1,84 @@
-interface MetricProps {
-  label: string;
-  value: string;
-  change: string;
-  trend: 'up' | 'down';
+import type { ParsedFinancialData } from '../utils/financialCalculations';
+import { calculateDelta, formatCurrency, formatPercent } from '../utils/financialCalculations';
+
+interface MetricsRowProps {
+  data: ParsedFinancialData;
+  selectedPeriod?: string;
+  comparePeriod?: string;
 }
 
-function MetricBox({ label, value, change, trend }: MetricProps) {
-  const isUp = trend === 'up';
+interface MetricBoxProps {
+  label: string;
+  value: number | null | undefined;
+  prevValue: number | null | undefined;
+}
+
+function MetricBox({ label, value, prevValue }: MetricBoxProps) {
+  const delta = calculateDelta(value, prevValue);
+  const isUp = delta.trend === 'up';
+  const isDown = delta.trend === 'down';
+
   return (
     <div className="p-6">
-      <div className="text-[10px] uppercase tracking-widest text-[#666666] dark:text-[#999999] mb-3">
+      <div className="text-[10px] uppercase tracking-widest text-[#666666] dark:text-[#999999] mb-3 truncate">
         {label}
       </div>
-      <div className="font-mono text-2xl mb-1">${value}</div>
-      <div className={`text-[10px] font-mono ${isUp ? 'text-green-600 dark:text-green-500' : 'text-penny-accent dark:text-penny-dark-accent'}`}>
-        {change} YoY
+      <div className="font-mono text-2xl mb-1 truncate">
+        {value != null ? `$${formatCurrency(value)}M` : '—'}
+      </div>
+      <div
+        className={`text-[10px] font-mono ${
+          isUp
+            ? 'text-green-600 dark:text-green-500'
+            : isDown
+            ? 'text-penny-accent dark:text-penny-dark-accent'
+            : 'text-[#666666] dark:text-[#999999]'
+        }`}
+      >
+        {delta.percentChange != null ? `${formatPercent(delta.percentChange)} YoY` : '— YoY'}
       </div>
     </div>
   );
 }
 
-export function MetricsRow() {
+export function MetricsRow({ data, selectedPeriod, comparePeriod }: MetricsRowProps) {
+  const { primaryMetrics, periodMetrics, periods } = data;
+
+  const curPeriod = selectedPeriod || periods[0];
+  const prevPeriod = comparePeriod || periods[1];
+
+  const getValue = (key: string, period?: string) => {
+    if (period && periodMetrics[period]?.[key] != null) {
+      return periodMetrics[period][key];
+    }
+    if (!period || period === curPeriod) {
+      return primaryMetrics[key] ?? null;
+    }
+    return null;
+  };
+
+  const revenue = getValue('revenue', curPeriod);
+  const prevRevenue = getValue('revenue', prevPeriod);
+
+  const netIncome = getValue('net_income', curPeriod);
+  const prevNetIncome = getValue('net_income', prevPeriod);
+
+  const opIncome = getValue('operating_income', curPeriod);
+  const prevOpIncome = getValue('operating_income', prevPeriod);
+
+  const totalAssets = getValue('total_assets', curPeriod);
+  const prevTotalAssets = getValue('total_assets', prevPeriod);
+
+  const totalLiabilities = getValue('total_liabilities', curPeriod);
+  const prevTotalLiabilities = getValue('total_liabilities', prevPeriod);
+
   return (
-    <div className="grid grid-cols-5 border-y border-penny-border dark:border-penny-dark-border divide-x divide-penny-border dark:divide-penny-dark-border mb-10 bg-penny-surface dark:bg-penny-dark-surface">
-      <MetricBox label="Revenue" value="60,801M" change="+28.0%" trend="up" />
-      <MetricBox label="Net Income" value="15,848M" change="-13.6%" trend="down" />
-      <MetricBox label="Operating Income" value="18,638M" change="-8.0%" trend="down" />
-      <MetricBox label="Total Assets" value="449,956M" change="+22.9%" trend="up" />
-      <MetricBox label="Total Liabilities" value="188,735M" change="+26.8%" trend="up" />
+    <div className="grid grid-cols-2 md:grid-cols-5 border-y border-penny-border dark:border-penny-dark-border divide-y md:divide-y-0 md:divide-x divide-penny-border dark:divide-penny-dark-border mb-10 bg-penny-surface dark:bg-penny-dark-surface">
+      <MetricBox label="Revenue" value={revenue} prevValue={prevRevenue} />
+      <MetricBox label="Net Income" value={netIncome} prevValue={prevNetIncome} />
+      <MetricBox label="Operating Income" value={opIncome} prevValue={prevOpIncome} />
+      <MetricBox label="Total Assets" value={totalAssets} prevValue={prevTotalAssets} />
+      <MetricBox label="Total Liabilities" value={totalLiabilities} prevValue={prevTotalLiabilities} />
     </div>
   );
 }

@@ -267,4 +267,163 @@ class ChatServiceTest {
         // Python receives both
         verify(aiServiceClient).query(eq("Compare"), eq(List.of(10L, 11L)));
     }
+
+    // =====================================================
+    // Test: getMessages restores citations and message history
+    // =====================================================
+    @Test
+    void getMessages_returnsMessagesWithPopulatedCitations() {
+        Chat chat = new Chat();
+        chat.setId(1L);
+        chat.setUser(userA);
+
+        ChatMessage msg1 = new ChatMessage();
+        msg1.setId(101L);
+        msg1.setChat(chat);
+        msg1.setRole(MessageRole.USER);
+        msg1.setContent("What was Meta's Q2 revenue?");
+
+        ChatMessage msg2 = new ChatMessage();
+        msg2.setId(102L);
+        msg2.setChat(chat);
+        msg2.setRole(MessageRole.ASSISTANT);
+        msg2.setContent("Meta's Q2 revenue was $39.07 billion.");
+
+        MessageCitation cit = new MessageCitation();
+        cit.setId(201L);
+        cit.setMessage(msg2);
+        cit.setDocumentId(10L);
+        cit.setPageNumber(4);
+
+        when(chatRepository.findByIdAndUserId(1L, userA.getId())).thenReturn(Optional.of(chat));
+        when(messageRepository.findByChatIdOrderByCreatedAtAsc(1L)).thenReturn(List.of(msg1, msg2));
+        when(citationRepository.findByMessageIdIn(List.of(101L, 102L))).thenReturn(List.of(cit));
+
+        List<ChatMessageResponse> responses = chatService.getMessages(1L, userA.getId());
+
+        assertEquals(2, responses.size());
+        assertEquals("What was Meta's Q2 revenue?", responses.get(0).getContent());
+        assertEquals(MessageRole.USER, responses.get(0).getRole());
+        assertTrue(responses.get(0).getCitations().isEmpty());
+
+        assertEquals("Meta's Q2 revenue was $39.07 billion.", responses.get(1).getContent());
+        assertEquals(MessageRole.ASSISTANT, responses.get(1).getRole());
+        assertEquals(1, responses.get(1).getCitations().size());
+        assertEquals(10L, responses.get(1).getCitations().get(0).documentId());
+        assertEquals(4, responses.get(1).getCitations().get(0).page());
+    }
+
+    // =====================================================
+    // Test: getOrCreateChatForDocument returns existing chat
+    // =====================================================
+    @Test
+    void getOrCreateChatForDocument_existingChat_returnsExistingChat() {
+        Chat existingChat = new Chat();
+        existingChat.setId(12L);
+        existingChat.setUser(userA);
+        existingChat.setTitle("Meta Q2 Research");
+        existingChat.setDocuments(new HashSet<>(Set.of(doc10)));
+
+        when(documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(10L, userA.getId()))
+                .thenReturn(Optional.of(doc10));
+        when(chatRepository.findByUserIdAndDocuments_IdOrderByCreatedAtDesc(userA.getId(), 10L))
+                .thenReturn(List.of(existingChat));
+
+        var result = chatService.getOrCreateChatForDocument(10L, userA);
+
+        assertEquals(12L, result.getId());
+        assertEquals("Meta Q2 Research", result.getTitle());
+        assertEquals(1, result.getDocuments().size());
+        assertEquals(10L, result.getDocuments().get(0).id());
+        verify(chatRepository, never()).save(any());
+    }
+
+    // =====================================================
+    // Test: getOrCreateChatForDocument creates new chat if none exists
+    // =====================================================
+    @Test
+    void getOrCreateChatForDocument_noExistingChat_createsNewChat() {
+        doc10.setFileName("Meta_Q2_2026.pdf");
+
+        when(documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(10L, userA.getId()))
+                .thenReturn(Optional.of(doc10));
+        when(chatRepository.findByUserIdAndDocuments_IdOrderByCreatedAtDesc(userA.getId(), 10L))
+                .thenReturn(List.of());
+        when(chatRepository.save(any(Chat.class))).thenAnswer(inv -> {
+            Chat c = inv.getArgument(0);
+            c.setId(99L);
+            return c;
+        });
+
+        var result = chatService.getOrCreateChatForDocument(10L, userA);
+
+        assertEquals(99L, result.getId());
+        assertEquals("Meta_Q2_2026.pdf Research", result.getTitle());
+        assertEquals(1, result.getDocuments().size());
+        assertEquals(10L, result.getDocuments().get(0).id());
+        verify(chatRepository).save(any(Chat.class));
+    }
+
+    // =====================================================
+    // Test: getOrCreateChatForDocument with deleted document throws
+    // =====================================================
+    @Test
+    void getOrCreateChatForDocument_deletedDocument_throwsNotFound() {
+        when(documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(10L, userA.getId()))
+                .thenReturn(Optional.empty());
+
+        ApiException ex = assertThrows(ApiException.class, () ->
+                chatService.getOrCreateChatForDocument(10L, userA));
+        assertEquals("Document not found or access denied", ex.getMessage());
+    }
+
+    // =====================================================
+    // Test: getChat verifies ownership
+    // =====================================================
+    @Test
+    void getChat_otherUser_throwsNotFound() {
+        when(chatRepository.findByIdAndUserId(1L, userB.getId())).thenReturn(Optional.empty());
+
+        ApiException ex = assertThrows(ApiException.class, () ->
+                chatService.getChat(1L, userB.getId()));
+        assertEquals("Chat not found", ex.getMessage());
+    }
+
+    // =====================================================
+    // Test: createChat with documentIds associates them upon creation
+    // =====================================================
+    @Test
+    void createChat_withDocumentIds_associatesDocsOnCreation() {
+        when(documentRepository.findAllByIdInAndUploadedByIdAndDeletedAtIsNull(List.of(10L), userA.getId()))
+                .thenReturn(List.of(doc10));
+        when(chatRepository.save(any(Chat.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Chat chat = chatService.createChat(userA, "Custom Research", List.of(10L));
+
+        assertNotNull(chat);
+        assertEquals("Custom Research", chat.getTitle());
+        assertTrue(chat.getDocuments().contains(doc10));
+        verify(chatRepository).save(any(Chat.class));
+    }
+
+    // =====================================================
+    // Test: getChatsForUserAndDocument filters correctly
+    // =====================================================
+    @Test
+    void getChatsForUserAndDocument_returnsFilteredChats() {
+        Chat chat1 = new Chat();
+        chat1.setId(101L);
+        chat1.setUser(userA);
+        chat1.setTitle("Chat 1");
+        chat1.setDocuments(new HashSet<>(Set.of(doc10)));
+
+        when(chatRepository.findByUserIdAndDocuments_IdOrderByCreatedAtDesc(userA.getId(), 10L))
+                .thenReturn(List.of(chat1));
+
+        var results = chatService.getChatsForUserAndDocument(userA.getId(), 10L);
+
+        assertEquals(1, results.size());
+        assertEquals(101L, results.get(0).getId());
+        assertEquals("Chat 1", results.get(0).getTitle());
+    }
 }

@@ -154,4 +154,51 @@ class DocumentServiceTest {
         assertEquals("passwd.pdf", response.getFileName());
         verify(aiServiceClient).triggerProcessing(eq(50L), anyString(), eq("PDF"));
     }
+
+    @Test
+    void getFinancialStatements_ownDocument_success() {
+        Document doc = new Document();
+        doc.setId(10L);
+
+        com.finassist.backend.entity.FinancialStatement stmt = new com.finassist.backend.entity.FinancialStatement();
+        stmt.setId(100L);
+        stmt.setStatementType("FINANCIAL_SUMMARY");
+        stmt.setPeriod("FY");
+
+        com.finassist.backend.entity.FinancialMetric metric = new com.finassist.backend.entity.FinancialMetric();
+        metric.setId(200L);
+        metric.setMetricName("revenue");
+        metric.setMetricValue(60801.0);
+        metric.setUnit("CURRENCY");
+        stmt.getMetrics().add(metric);
+
+        when(documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(10L, 1L)).thenReturn(Optional.of(doc));
+        when(statementRepository.findByDocumentId(10L)).thenReturn(java.util.List.of(stmt));
+
+        var result = documentService.getFinancialStatements(10L, 1L);
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        assertEquals("FINANCIAL_SUMMARY", result.get(0).statementType());
+        assertEquals(1, result.get(0).metrics().size());
+        assertEquals("revenue", result.get(0).metrics().get(0).metricName());
+        assertEquals(60801.0, result.get(0).metrics().get(0).metricValue());
+    }
+
+    @Test
+    void getFinancialStatements_otherUserDocument_throwsNotFound() {
+        when(documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(10L, 2L)).thenReturn(Optional.empty());
+
+        ApiException ex = assertThrows(ApiException.class, () -> documentService.getFinancialStatements(10L, 2L));
+        assertEquals("Document not found", ex.getMessage());
+        verify(statementRepository, never()).findByDocumentId(any());
+    }
+
+    @Test
+    void getFinancialStatements_deletedDocument_throwsNotFound() {
+        when(documentRepository.findByIdAndUploadedByIdAndDeletedAtIsNull(10L, 1L)).thenReturn(Optional.empty());
+
+        ApiException ex = assertThrows(ApiException.class, () -> documentService.getFinancialStatements(10L, 1L));
+        assertEquals("Document not found", ex.getMessage());
+        verify(statementRepository, never()).findByDocumentId(any());
+    }
 }

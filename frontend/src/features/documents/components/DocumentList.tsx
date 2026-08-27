@@ -75,6 +75,38 @@ export function DocumentList({ refreshKey }: DocumentListProps) {
     fetchDocuments();
   }, [refreshKey]);
 
+  // Poll processing documents for real-time status updates
+  const documentsRef = useRef(documents);
+  documentsRef.current = documents;
+
+  useEffect(() => {
+    const PROCESSING_STATUSES = ['UPLOADED', 'PROCESSING', 'EXTRACTING', 'CHUNKING', 'EMBEDDING'];
+    const POLL_INTERVAL_MS = 2000;
+
+    const intervalId = setInterval(() => {
+      const currentDocs = documentsRef.current;
+      const processingDocs = currentDocs.filter((d) => PROCESSING_STATUSES.includes(d.status));
+
+      if (processingDocs.length === 0) return;
+
+      processingDocs.forEach((doc) => {
+        apiClient<{ status: string }>(`/api/v1/documents/${doc.id}/status`)
+          .then(({ status }) => {
+            if (status !== doc.status) {
+              setDocuments((prev) =>
+                prev.map((d) => (d.id === doc.id ? { ...d, status } : d))
+              );
+            }
+          })
+          .catch((err) => {
+            console.warn(`Failed to poll status for document ${doc.id}:`, err);
+          });
+      });
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
   // Close contextual menu when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {

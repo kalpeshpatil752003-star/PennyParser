@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { FileText, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import { Message } from '../components/Message';
 import { QuestionInput } from '../components/QuestionInput';
@@ -8,48 +8,138 @@ import { apiClient } from '../../../api/client';
 import type { ChatMessage, Citation, Chat, Document } from '../../../types';
 
 export function ResearchPage() {
+  const { chatId: chatIdParam } = useParams<{ chatId?: string }>();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
   const documentIdParam = searchParams.get('documentId');
-  const documentId = documentIdParam ? parseInt(documentIdParam, 10) : null;
+  const parsedDocId = documentIdParam ? parseInt(documentIdParam, 10) : null;
+  const parsedChatId = chatIdParam ? parseInt(chatIdParam, 10) : null;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [chatId, setChatId] = useState<number | null>(null);
+  const [chatId, setChatId] = useState<number | null>(parsedChatId);
   const [document, setDocument] = useState<Document | null>(null);
   const [isDocUnavailable, setIsDocUnavailable] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load document metadata when documentId changes
+  // Resolution & Data Loading Effect
   useEffect(() => {
-    setMessages([]);
-    setChatId(null);
-    setError(null);
-    setIsDocUnavailable(false);
+    let isCancelled = false;
 
-    if (documentId) {
-      apiClient<Document>(`/api/v1/documents/${documentId}`)
-        .then((doc) => {
-          setDocument(doc);
-          setIsDocUnavailable(false);
+    // Case 1: Active persistent chatId in URL
+    if (parsedChatId) {
+      setChatId(parsedChatId);
+      setIsLoadingHistory(true);
+      setError(null);
+
+      Promise.all([
+        apiClient<Chat>(`/api/v1/chats/${parsedChatId}`),
+        apiClient<ChatMessage[]>(`/api/v1/chats/${parsedChatId}/messages`),
+      ])
+        .then(([chatData, chatMessages]) => {
+          if (isCancelled) return;
+
+          setMessages(
+            chatMessages.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              citations: m.citations || [],
+              createdAt: m.createdAt,
+            }))
+          );
+
+          // Resolve document context from chat documents
+          if (chatData.documents && chatData.documents.length > 0) {
+            const primaryDoc = chatData.documents[0];
+            if (primaryDoc.isDeleted) {
+              setIsDocUnavailable(true);
+              setDocument({
+                ...primaryDoc,
+                fileType: 'UNAVAILABLE',
+                documentType: 'Document removed or inaccessible',
+                status: 'FAILED',
+              });
+            } else {
+              setIsDocUnavailable(false);
+              setDocument(primaryDoc);
+            }
+          } else if (parsedDocId) {
+            // Fallback fetch if document was not pre-populated in chat documents
+            apiClient<Document>(`/api/v1/documents/${parsedDocId}`)
+              .then((doc) => {
+                if (isCancelled) return;
+                setDocument(doc);
+                setIsDocUnavailable(false);
+              })
+              .catch(() => {
+                if (isCancelled) return;
+                setIsDocUnavailable(true);
+                setDocument({
+                  id: parsedDocId,
+                  fileName: `Document #${parsedDocId}`,
+                  fileType: 'UNAVAILABLE',
+                  documentType: 'Document removed or inaccessible',
+                  status: 'FAILED',
+                  uploadedAt: '',
+                });
+              });
+          } else {
+            setDocument(null);
+            setIsDocUnavailable(false);
+          }
         })
         .catch((err) => {
-          console.warn('Could not fetch document from API:', err);
-          setIsDocUnavailable(true);
-          setDocument({
-            id: documentId,
-            fileName: `Document #${documentId}`,
-            fileType: 'UNAVAILABLE',
-            documentType: 'Document removed or inaccessible',
-            status: 'FAILED',
-            uploadedAt: '',
-          });
+          if (isCancelled) return;
+          console.error('Failed to load chat history:', err);
+          setError(err.message || 'Chat not found or access denied.');
+          setMessages([]);
+        })
+        .finally(() => {
+          if (!isCancelled) {
+            setIsLoadingHistory(false);
+          }
         });
-    } else {
-      setDocument(null);
-      setIsDocUnavailable(false);
+
+      return () => {
+        isCancelled = true;
+      };
     }
-  }, [documentId]);
+
+    // Case 2: Document ID supplied without chatId -> Resolve or create persistent chat
+    if (parsedDocId && !parsedChatId) {
+      setIsLoadingHistory(true);
+      setError(null);
+
+      apiClient<Chat>(`/api/v1/chats/document/${parsedDocId}`)
+        .then((chat) => {
+          if (isCancelled) return;
+          // Transition URL to persistent /research/:chatId?documentId=...
+          navigate(`/research/${chat.id}?documentId=${parsedDocId}`, { replace: true });
+        })
+        .catch((err) => {
+          if (isCancelled) return;
+          console.error('Failed to resolve chat for document:', err);
+          setError(err.message || 'Document not found or access denied.');
+          setIsLoadingHistory(false);
+        });
+
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    // Case 3: No document and no chatId selected
+    setChatId(null);
+    setDocument(null);
+    setMessages([]);
+    setIsDocUnavailable(false);
+    setIsLoadingHistory(false);
+    setError(null);
+  }, [parsedChatId, parsedDocId, navigate]);
 
   // Auto-scroll when new messages arrive
   useEffect(() => {
@@ -57,7 +147,7 @@ export function ResearchPage() {
   }, [messages, isLoading]);
 
   const handleAsk = async (question: string) => {
-    if (!question.trim() || !documentId || isLoading) return;
+    if (!question.trim() || !chatId || isLoading) return;
 
     const now = new Date();
     const userMessage: ChatMessage = {
@@ -73,30 +163,12 @@ export function ResearchPage() {
     setError(null);
 
     try {
-      let currentChatId = chatId;
-
-      // 1. Create chat if not already created
-      if (!currentChatId) {
-        const chatTitle = document?.fileName
-          ? `${document.fileName} Research`
-          : `Document #${documentId} Research`;
-        const chat = await apiClient<Chat>('/api/v1/chats', {
-          method: 'POST',
-          body: JSON.stringify({ title: chatTitle }),
-        });
-        currentChatId = chat.id;
-        setChatId(chat.id);
-      }
-
-      // 2. Send question through chat message endpoint
-      // Send documentIds: [documentId] on first message to persist Chat ↔ Document association
-      const isFirstMessage = messages.length === 0;
       const payload: { content: string; documentIds?: number[] } = {
         content: question,
       };
 
-      if (isFirstMessage) {
-        payload.documentIds = [documentId];
+      if (parsedDocId && messages.length === 0) {
+        payload.documentIds = [parsedDocId];
       }
 
       const response = await apiClient<{
@@ -105,7 +177,7 @@ export function ResearchPage() {
         content: string;
         citations: Citation[];
         createdAt: string;
-      }>(`/api/v1/chats/${currentChatId}/messages`, {
+      }>(`/api/v1/chats/${chatId}/messages`, {
         method: 'POST',
         body: JSON.stringify(payload),
       });
@@ -138,6 +210,8 @@ export function ResearchPage() {
     }
   };
 
+  const hasSelectedContext = parsedChatId || parsedDocId || document;
+
   return (
     <div className="flex h-full">
       {/* Center Conversation Area */}
@@ -147,11 +221,11 @@ export function ResearchPage() {
           <div className="text-[10px] uppercase tracking-widest text-[#666666] dark:text-[#999999] mb-3">
             Research
           </div>
-          {documentId ? (
+          {hasSelectedContext ? (
             <>
               <div className="flex items-center gap-3 mb-1">
                 <h1 className="text-2xl font-medium tracking-tight uppercase">
-                  {document?.fileName || `Document #${documentId}`}
+                  {document?.fileName || (parsedDocId ? `Document #${parsedDocId}` : 'Financial Research')}
                 </h1>
                 {isDocUnavailable && (
                   <span className="text-[10px] uppercase font-mono px-2 py-0.5 border border-penny-accent/40 text-penny-accent dark:text-penny-dark-accent bg-penny-accent/5">
@@ -194,7 +268,7 @@ export function ResearchPage() {
         </div>
 
         {/* Conversation History */}
-        {!documentId ? (
+        {!hasSelectedContext ? (
           <div className="flex-1 p-8 flex flex-col items-center justify-center text-center">
             <FileText size={48} strokeWidth={1} className="text-[#DCDCD7] dark:text-[#303030] mb-6" />
             <h3 className="text-lg font-medium mb-2">No document selected</h3>
@@ -210,7 +284,14 @@ export function ResearchPage() {
           </div>
         ) : (
           <div className="flex-1 p-8 overflow-y-auto flex flex-col gap-8">
-            {messages.length === 0 && !isLoading && (
+            {isLoadingHistory && (
+              <div className="flex-1 flex flex-col items-center justify-center text-center py-16 text-[#666666] dark:text-[#999999]">
+                <Loader2 size={20} className="animate-spin text-penny-accent dark:text-penny-dark-accent mb-3" />
+                <div className="text-xs uppercase tracking-widest font-mono">Loading conversation...</div>
+              </div>
+            )}
+
+            {!isLoadingHistory && messages.length === 0 && !isLoading && !error && (
               <div className="flex-1 flex flex-col items-center justify-center text-center py-12 text-[#666666] dark:text-[#999999]">
                 <div className="text-xs uppercase tracking-widest font-semibold mb-2">
                   {isDocUnavailable ? 'Document Removed' : 'Ready for Research'}
@@ -223,19 +304,20 @@ export function ResearchPage() {
               </div>
             )}
 
-            {messages.map((msg, idx) => (
-              <React.Fragment key={msg.id || idx}>
-                {idx > 0 && (
-                  <hr className="border-t border-penny-border dark:border-penny-dark-border" />
-                )}
-                <Message
-                  role={msg.role}
-                  time={formatTime(msg.createdAt)}
-                  content={msg.content}
-                  citations={msg.citations}
-                />
-              </React.Fragment>
-            ))}
+            {!isLoadingHistory &&
+              messages.map((msg, idx) => (
+                <React.Fragment key={msg.id || idx}>
+                  {idx > 0 && (
+                    <hr className="border-t border-penny-border dark:border-penny-dark-border" />
+                  )}
+                  <Message
+                    role={msg.role}
+                    time={formatTime(msg.createdAt)}
+                    content={msg.content}
+                    citations={msg.citations}
+                  />
+                </React.Fragment>
+              ))}
 
             {isLoading && (
               <>
@@ -274,9 +356,9 @@ export function ResearchPage() {
         <QuestionInput
           onAsk={handleAsk}
           isLoading={isLoading}
-          disabled={!documentId || isDocUnavailable}
+          disabled={!hasSelectedContext || isDocUnavailable || !chatId}
           placeholder={
-            !documentId
+            !hasSelectedContext
               ? 'Select a document first to ask questions...'
               : isDocUnavailable
               ? 'Source document is no longer available.'
@@ -289,4 +371,4 @@ export function ResearchPage() {
       <SourcePanel citations={allCitations} document={document} />
     </div>
   );
-}
+}
