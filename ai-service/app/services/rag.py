@@ -167,17 +167,22 @@ async def generate_answer(question: str, document_ids: list[int] = None) -> dict
     chunk_map = {c["chunk_id"]: c for c in retrieved}
     cited_chunks = []
 
+    # 1. Match explicit chunk IDs
     for chunk_id, c in chunk_map.items():
         if chunk_id in answer_text:
             cited_chunks.append(c)
 
-    page_numbers_in_answer = set(map(int, re.findall(r"Page\s+(\d+)", answer_text, re.IGNORECASE)))
+    # 2. Match page numbers mentioned in text (Page 5, pp. 5, p. 5, [Page 5])
+    page_matches = re.findall(r"(?:Page|pp?\.?|p\.)\s*(\d+)", answer_text, re.IGNORECASE)
+    page_numbers_in_answer = set(map(int, page_matches)) if page_matches else set()
+
     for c in retrieved:
         if c["page_number"] in page_numbers_in_answer:
             cited_chunks.append(c)
 
+    # 3. If no explicit page cited in text, only pick the top relevant retrieved chunk(s)
     if not cited_chunks:
-        cited_chunks = retrieved
+        cited_chunks = retrieved[:2]
 
     seen = set()
     citations = []
