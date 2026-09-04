@@ -10,7 +10,7 @@ def is_footnote_marker(raw: str) -> bool:
         return True
     return False
 
-def parse_number(raw: str) -> float | None:
+def parse_number(raw: str, locale: str = "en_US") -> float | None:
     if raw is None:
         return None
     s = str(raw).strip()
@@ -51,7 +51,25 @@ def parse_number(raw: str) -> float | None:
         negative = True
         s = s[1:].strip()
 
-    # Clean remaining spaces and thousands separators
+    # For non-US locales, use babel for locale-aware decimal parsing
+    if locale and locale != "en_US":
+        try:
+            from babel.numbers import parse_decimal
+            from babel.core import UnknownLocaleError
+            # European decimal-comma heuristic: if string matches patterns like 1.234,56
+            # this confirms European format even if locale was ambiguous
+            if re.match(r"^\d{1,3}(\.\d{3})+,\d+$", s):
+                # Force European-style parsing
+                effective_locale = locale if locale not in ("en_US", "en_GB") else "de_DE"
+                value = float(parse_decimal(s, locale=effective_locale))
+                return -value if negative else value
+            value = float(parse_decimal(s, locale=locale))
+            return -value if negative else value
+        except (Exception,):
+            # Fall through to US-style parsing as last resort
+            pass
+
+    # US-style: Clean remaining spaces and thousands separators
     s = s.replace(",", "").replace(" ", "").strip()
 
     if not re.match(r"^\d+(\.\d+)?$", s):

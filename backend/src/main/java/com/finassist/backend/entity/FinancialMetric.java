@@ -26,6 +26,12 @@ public class FinancialMetric {
     @Column(name = "source_page")
     private Integer sourcePage;
 
+    @Column(name = "source")
+    private String source; // extracted, derived
+
+    @Column(name = "confidence")
+    private Double confidence;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -43,4 +49,10 @@ public class FinancialMetric {
 
     public Integer getSourcePage() { return sourcePage; }
     public void setSourcePage(Integer sourcePage) { this.sourcePage = sourcePage; }
+
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
+
+    public Double getConfidence() { return confidence; }
+    public void setConfidence(Double confidence) { this.confidence = confidence; }
 }

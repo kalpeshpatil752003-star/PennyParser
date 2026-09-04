@@ -26,7 +26,8 @@ export const METRIC_LABELS: Record<string, { label: string; category: 'INCOME' |
   gross_profit: { label: 'Gross Profit', category: 'INCOME' },
   operating_income: { label: 'Operating Income', category: 'INCOME' },
   net_income: { label: 'Net Income', category: 'INCOME' },
-  eps: { label: 'Diluted Earnings Per Share (EPS)', category: 'INCOME' },
+  eps_basic: { label: 'Basic Earnings Per Share (EPS)', category: 'INCOME' },
+  eps_diluted: { label: 'Diluted Earnings Per Share (EPS)', category: 'INCOME' },
   total_assets: { label: 'Total Assets', category: 'BALANCE' },
   total_liabilities: { label: 'Total Liabilities', category: 'BALANCE' },
   total_equity: { label: "Stockholders' Equity", category: 'BALANCE' },
@@ -179,7 +180,9 @@ export function calculateDelta(
 }
 
 /**
- * Format currency number in standard financial presentation ($60,801M or 60,801)
+ * Format currency number with magnitude-aware abbreviation.
+ * Dynamically picks unit label (K/M/B/T) based on actual value size.
+ * Works for any company at any scale — small-cap in thousands and mega-cap in billions.
  */
 export function formatCurrency(
   val: number | null | undefined,
@@ -187,11 +190,40 @@ export function formatCurrency(
 ): string {
   if (val == null || isNaN(val)) return '—';
   const { showSymbol = false, suffix = '' } = options;
+  const absVal = Math.abs(val);
+  let formatted: string;
+  if (absVal >= 1e12) {
+    formatted = `${(val / 1e12).toFixed(2)}T`;
+  } else if (absVal >= 1e9) {
+    formatted = `${(val / 1e9).toFixed(2)}B`;
+  } else if (absVal >= 1e6) {
+    formatted = `${(val / 1e6).toFixed(2)}M`;
+  } else if (absVal >= 1e3) {
+    formatted = `${(val / 1e3).toFixed(1)}K`;
+  } else {
+    formatted = val.toLocaleString('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: val % 1 === 0 ? 0 : 2,
+    });
+  }
+  return `${showSymbol ? '$' : ''}${formatted}${suffix}`;
+}
+
+/**
+ * Format currency with full numeric precision (no magnitude abbreviation).
+ * Use for tooltips or contexts requiring exact values.
+ */
+export function formatCurrencyRaw(
+  val: number | null | undefined,
+  options: { showSymbol?: boolean } = {}
+): string {
+  if (val == null || isNaN(val)) return '—';
+  const { showSymbol = false } = options;
   const formatted = val.toLocaleString('en-US', {
     minimumFractionDigits: 0,
     maximumFractionDigits: val % 1 === 0 ? 0 : 2,
   });
-  return `${showSymbol ? '$' : ''}${formatted}${suffix}`;
+  return `${showSymbol ? '$' : ''}${formatted}`;
 }
 
 /**
@@ -241,13 +273,13 @@ export function generateDeterministicKeyFacts(data: ParsedFinancialData): Array<
         const direction = delta.percentChange >= 0 ? 'grew' : 'declined';
         facts.push({
           title: `Revenue ${direction} ${Math.abs(delta.percentChange)}% YoY`,
-          desc: `${curPeriod || 'Current period'} revenue reached $${formatCurrency(rev.cur)}M compared to $${formatCurrency(rev.prev)}M in ${prevPeriod || 'prior period'}.`,
+          desc: `${curPeriod || 'Current period'} revenue reached ${formatCurrency(rev.cur, { showSymbol: true })} compared to ${formatCurrency(rev.prev, { showSymbol: true })} in ${prevPeriod || 'prior period'}.`,
           trend: delta.trend,
         });
       }
     } else {
       facts.push({
-        title: `Reported Revenue: $${formatCurrency(rev.cur)}M`,
+        title: `Reported Revenue: ${formatCurrency(rev.cur, { showSymbol: true })}`,
         desc: `Total top-line revenue extracted from financial statements.`,
         trend: 'neutral',
       });
@@ -263,13 +295,13 @@ export function generateDeterministicKeyFacts(data: ParsedFinancialData): Array<
         const direction = delta.percentChange >= 0 ? 'increased' : 'declined';
         facts.push({
           title: `Net income ${direction} ${Math.abs(delta.percentChange)}% YoY`,
-          desc: `Net earnings stood at $${formatCurrency(ni.cur)}M vs $${formatCurrency(ni.prev)}M in the prior reporting period.`,
+          desc: `Net earnings stood at ${formatCurrency(ni.cur, { showSymbol: true })} vs ${formatCurrency(ni.prev, { showSymbol: true })} in the prior reporting period.`,
           trend: delta.trend,
         });
       }
     } else {
       facts.push({
-        title: `Reported Net Income: $${formatCurrency(ni.cur)}M`,
+        title: `Reported Net Income: ${formatCurrency(ni.cur, { showSymbol: true })}`,
         desc: `Bottom-line net earnings recorded for the period.`,
         trend: 'neutral',
       });
@@ -284,7 +316,7 @@ export function generateDeterministicKeyFacts(data: ParsedFinancialData): Array<
       const aDelta = calculateDelta(assets.cur, assets.prev);
       const lDelta = calculateDelta(liab.cur, liab.prev);
       if (aDelta.percentChange != null && lDelta.percentChange != null) {
-        const desc = `Total assets changed ${formatPercent(aDelta.percentChange)} to $${formatCurrency(assets.cur)}M, while total liabilities changed ${formatPercent(lDelta.percentChange)} to $${formatCurrency(liab.cur)}M.`;
+        const desc = `Total assets changed ${formatPercent(aDelta.percentChange)} to ${formatCurrency(assets.cur, { showSymbol: true })}, while total liabilities changed ${formatPercent(lDelta.percentChange)} to ${formatCurrency(liab.cur, { showSymbol: true })}.`;
         facts.push({
           title: 'Balance Sheet Trajectory',
           desc,
@@ -294,7 +326,7 @@ export function generateDeterministicKeyFacts(data: ParsedFinancialData): Array<
     } else {
       facts.push({
         title: 'Balance Sheet Structure',
-        desc: `Total assets of $${formatCurrency(assets.cur)}M against total liabilities of $${formatCurrency(liab.cur)}M.`,
+        desc: `Total assets of ${formatCurrency(assets.cur, { showSymbol: true })} against total liabilities of ${formatCurrency(liab.cur, { showSymbol: true })}.`,
         trend: 'neutral',
       });
     }

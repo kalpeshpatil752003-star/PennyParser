@@ -106,8 +106,12 @@ public class DocumentService {
                 stmt.getStatementType(),
                 stmt.getFiscalYear(),
                 stmt.getPeriod(),
+                stmt.getPeriodType(),
+                stmt.getAsOfDate(),
+                stmt.getSourceScale(),
                 stmt.getMetrics().stream().map(m -> new com.finassist.backend.dto.FinancialStatementResponse.FinancialMetricDto(
-                        m.getId(), m.getMetricName(), m.getMetricValue(), m.getUnit(), m.getSourcePage()
+                        m.getId(), m.getMetricName(), m.getMetricValue(), m.getUnit(), m.getSourcePage(),
+                        m.getSource(), m.getConfidence()
                 )).toList()
         )).toList();
     }

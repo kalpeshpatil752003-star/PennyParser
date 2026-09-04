@@ -128,7 +128,8 @@ def extract_pdf_financial_tables(file_path: str) -> list[dict]:
                     "page_number": i + 1,
                     "statement_type": statement_type,
                     "rows": table,
-                    "scale": scale_info
+                    "scale": scale_info,
+                    "table_quality_score": max(best_score, 0.0),
                 })
     return results
 
@@ -151,10 +152,11 @@ def extract_docx_financial_tables(file_path: str) -> list[dict]:
             if statement_type and len(rows) >= 4:
                 scale_info = detect_scale(table_text)
                 results.append({
-                    "page_number": (i // 2) + 1,
+                    "page_number": None,
+                    "table_index": i + 1,
                     "statement_type": statement_type,
                     "rows": rows,
-                    "scale": scale_info
+                    "scale": scale_info,
                 })
         return results
     except Exception as e:

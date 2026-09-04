@@ -221,13 +221,13 @@ export function FinancialStatementsTab({ data, selectedPeriod, comparePeriod }: 
             </tr>
           </thead>
           <tbody className="divide-y divide-penny-border dark:divide-penny-dark-border font-mono text-xs">
-            {['revenue', 'cost_of_goods_sold', 'gross_profit', 'operating_income', 'net_income', 'eps'].map((key) => {
+            {['revenue', 'cost_of_goods_sold', 'gross_profit', 'operating_income', 'net_income', 'eps_basic', 'eps_diluted'].map((key) => {
               const val = getVal(key, curPeriod);
               const prev = getVal(key, prevPeriod);
               const delta = calculateDelta(val, prev);
               const isUp = delta.trend === 'up';
               const isDown = delta.trend === 'down';
-              const isEps = key === 'eps';
+              const isEps = key.startsWith('eps');
 
               return (
                 <tr key={key} className="hover:bg-penny-border/10">

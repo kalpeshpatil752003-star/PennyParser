@@ -1,4 +1,5 @@
 import os
+import re
 import asyncio
 import logging
 import httpx
@@ -8,7 +9,7 @@ from app.services.extraction import extract_document
 from app.services.chunking import chunk_pages
 from app.core.faiss_store import add_chunks_batch, remove_document
 from app.services.financial_extraction import extract_financial_tables
-from app.services.line_items import extract_line_items
+from app.services.line_items import extract_line_items, compute_period_comparisons
 from app.services.ratios import calculate_ratios
 from app.services.rag import store_line_items
 
@@ -51,6 +52,7 @@ async def run_pipeline(document_id: int, file_path: str, file_type: str):
             # Financial Extraction (PDF, DOCX, etc.)
             line_items = {}
             ratios = {}
+            period_comparisons = {}
             try:
                 ext = os.path.splitext(file_path)[1].lower()
                 ft_upper = (file_type or "").upper()
@@ -60,17 +62,29 @@ async def run_pipeline(document_id: int, file_path: str, file_type: str):
                     logger.info(f"[doc {document_id}] found {len(tables)} candidate financial tables")
 
                     if tables:
-                        line_items = extract_line_items(tables)
+                        extraction_result = extract_line_items(tables)
+                        line_items = extraction_result
+                        periods = extraction_result.periods if hasattr(extraction_result, "periods") else list(extraction_result)
+                        audit_metadata = getattr(extraction_result, "audit_metadata", {})
                         ratios = calculate_ratios(line_items)
+                        period_comparisons = compute_period_comparisons(line_items)
 
-                        for metric_key, item in line_items.items():
-                            logger.info(f"[doc {document_id}] {metric_key}: value={item.get('value')}, by_period={item.get('by_period', {})}")
+                        for p in periods:
+                            logger.info(f"[doc {document_id}] period={p.get('period_key')} ({p.get('period_type')}): label='{p.get('label')}'")
 
                 if line_items:
                     store_line_items(document_id, line_items)
 
-                # Sync financials (or empty map) to Spring Boot
-                await sync_financials_to_spring(client, document_id, line_items, ratios)
+                # Sync financials (with period-keyed structure and audit metadata) to Spring Boot
+                await sync_financials_to_spring(
+                    client,
+                    document_id,
+                    line_items=dict(line_items.items()) if hasattr(line_items, "items") else line_items,
+                    ratios=ratios,
+                    period_comparisons=period_comparisons,
+                    periods=[dict(p) for p in periods] if 'periods' in locals() and periods else None,
+                    audit_metadata=audit_metadata if 'audit_metadata' in locals() else None,
+                )
 
             except Exception as fe:
                 # Decoupled financial extraction failure: do not crash document RAG
@@ -120,10 +134,25 @@ async def sync_chunks_to_spring(client: httpx.AsyncClient, document_id: int, chu
                 await asyncio.sleep(0.5 * (attempt + 1))
 
 
-async def sync_financials_to_spring(client: httpx.AsyncClient, document_id: int, line_items: dict, ratios: dict, retries: int = 3):
+async def sync_financials_to_spring(
+    client: httpx.AsyncClient,
+    document_id: int,
+    line_items: dict,
+    ratios: dict,
+    period_comparisons: dict = None,
+    periods: list[dict] = None,
+    audit_metadata: dict = None,
+    retries: int = 3
+):
     url = f"{SPRING_BASE_URL}/internal/v1/documents/{document_id}/financials"
     headers = {"X-Internal-Token": INTERNAL_SERVICE_TOKEN}
     payload = {"lineItems": line_items, "ratios": ratios}
+    if period_comparisons:
+        payload["periodComparisons"] = period_comparisons
+    if periods:
+        payload["periods"] = periods
+    if audit_metadata:
+        payload["auditMetadata"] = audit_metadata
 
     for attempt in range(retries):
         try:

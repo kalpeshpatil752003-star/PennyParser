@@ -1,6 +1,8 @@
 import re
 import logging
 
+from app.services.line_items import detect_duplicate_value_anomalies
+
 logger = logging.getLogger("financial_reasoning")
 
 
@@ -40,6 +42,21 @@ def validate_financial_data(line_items: dict) -> dict:
                             f"SUSPECT: {metric_key} {cum_prefix}_{year} ({cum_val}) < {q_label}_{year} ({val}). "
                             f"Cumulative should be >= quarterly for positive revenue/income items."
                         )
+
+    # Check: Multi-candidate conflicts flagged by _select_best_candidates()
+    for metric_key, item in line_items.items():
+        conflict = item.get("conflicting_candidate")
+        if conflict:
+            warnings.append(
+                f"SUSPECT: {metric_key} has conflicting extraction candidates — "
+                f"chosen value {item.get('value')} (page {item.get('page')}) vs "
+                f"alternate {conflict.get('value')} (page {conflict.get('page')}). "
+                f"Review source document for accuracy."
+            )
+
+    # Check: Duplicate value anomalies — two distinct metrics with identical values
+    dup_warnings = detect_duplicate_value_anomalies(line_items)
+    warnings.extend(dup_warnings)
 
     if warnings:
         logger.warning(f"Financial validation warnings: {warnings}")
